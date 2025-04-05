@@ -1,6 +1,7 @@
 # 智能在线聊天系统 - MCPO测试项目
 
 这是一个基于Flask的在线聊天系统，专门设计用于测试和展示MCPO（MCP-to-OpenAPI代理服务器）的功能。本项目集成了AI大模型对话、网页内容分析和时间查询功能，通过MCPO实现对MCP服务的标准化访问。
+<img width="959" alt="5e43cedcb1b2e730f6f3ecc40f78529" src="https://github.com/user-attachments/assets/f6b7ec99-d2ab-455f-8945-1bfff702cddd" />
 
 ## 关于MCPO
 
