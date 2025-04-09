@@ -60,6 +60,26 @@ body {
     border-top: 1px solid #4b5563;
 }
 
+.sidebar-links {
+    margin-top: 16px;
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    text-decoration: none;
+    color: #e5e7eb;
+    font-size: 14px;
+    transition: background-color 0.3s;
+}
+
+.sidebar-link:hover {
+    background-color: #3e3f4b;
+}
+
 .model-badge {
     display: inline-block;
     padding: 4px 8px;

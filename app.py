@@ -6,7 +6,7 @@ import traceback
 import re
 import uuid
 from datetime import datetime
-
+from openai import OpenAI
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.getenv("SECRET_KEY", "your-secret-key-here")
 
-# 硅基流动API配置
-GUIJI_API_KEY = ""  # 替换为您的真实API密钥
-GUIJI_API_URL = "https://api.siliconflow.cn/v1/chat/completions"
+# OpenRouter API配置
+OPENROUTER_API_KEY = "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"  # 替换为您的OpenRouter API密钥
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_MODEL = "google/gemma-3-12b-it:free"
 
 # MCP Fetch服务配置
 MCP_FETCH_URL = "http://127.0.0.1:8000/fetch/fetch"
@@ -24,12 +25,19 @@ MCP_FETCH_URL = "http://127.0.0.1:8000/fetch/fetch"
 # MCP Time服务配置
 MCP_TIME_URL = "http://127.0.0.1:8000/time/time"
 
+# MCP 文件系统服务配置
+MCP_FILESYSTEM_URL = "http://127.0.0.1:8000/filesystem/filesystem"
+
 # 以下配置已不再需要，保留为注释以备参考
 # 或方案2：使用根路径
 # MCP_TIME_URL = "http://127.0.0.1:8000/"
 
 # 或方案3：尝试其他可能的端点
 # MCP_TIME_URL = "http://127.0.0.1:8000/api/time"
+
+# 导入文件系统操作
+from filesystem_operations import read_file as fs_read_file, write_file as fs_write_file
+from filesystem_operations import list_directory, search_files, get_file_info
 
 @app.route("/")
 def index():
@@ -56,14 +64,65 @@ def chat():
         # 初始化响应内容
         response_text = ""
         
+        # 检查是否是文件系统相关查询
+        filesystem_keywords = ["文件", "目录", "桌面", "文件夹", "Desktop", "desktop", "files", "folders", "directory"]
+        location_keywords = ["桌面", "桌面上", "Desktop", "desktop"]
+        list_keywords = ["列出", "有哪些", "显示", "查看", "list", "show", "display"]
+        
+        is_filesystem_query = any(keyword in user_message for keyword in filesystem_keywords)
+        is_desktop_query = any(keyword in user_message for keyword in location_keywords)
+        is_list_query = any(keyword in user_message for keyword in list_keywords) or "我的桌面" in user_message
+        
+        if is_filesystem_query and is_desktop_query:
+            # 查询桌面文件
+            logger.info("检测到桌面文件查询请求")
+            try:
+                logger.info("尝试列出桌面目录内容")
+                # 先检查文件系统服务是否可用
+                try:
+                    logger.info(f"检查文件系统服务: {MCP_FILESYSTEM_URL}")
+                    health_check = requests.get(
+                        f"{MCP_FILESYSTEM_URL}",
+                        timeout=5
+                    )
+                    logger.info(f"文件系统服务检查状态码: {health_check.status_code}")
+                except Exception as e:
+                    logger.error(f"文件系统服务检查失败: {str(e)}")
+
+                # 尝试列出目录
+                # 不管传入什么路径，我们都只列出桌面根目录
+                file_list = list_directory(".")
+                
+                logger.info(f"list_directory返回结果类型: {type(file_list)}")
+                if isinstance(file_list, dict) and "error" in file_list:
+                    error_msg = file_list['error']
+                    logger.error(f"文件系统服务返回错误: {error_msg}")
+                    if "Access denied" in error_msg or "path outside allowed directories" in error_msg:
+                        response_text = "抱歉，我无法访问您的桌面文件。这可能是因为我在当前的工作目录中运行，而文件系统服务被限制只能访问您的桌面目录。我们已尝试修复这个问题，请稍后再试。如果问题仍然存在，请尝试将此应用移动到桌面运行，或者修改文件系统服务的配置。"
+                    else:
+                        response_text = f"抱歉，我尝试查看您桌面上的文件时遇到了错误: {error_msg}。这可能是因为文件系统服务未正确启动或配置。请确保MCPO服务正在运行，并且配置了正确的访问权限。"
+                else:
+                    # 格式化文件列表数据，让它更易读
+                    formatted_files = []
+                    for item in file_list:
+                        is_dir = item.startswith('[DIR]')
+                        name = item[5:].strip() if is_dir else item[6:].strip()
+                        formatted_files.append(f"{'[文件夹]' if is_dir else '[文件]'} {name}")
+                    
+                    filesystem_prompt = f"用户询问桌面上有哪些文件。以下是从用户桌面获取的文件列表:\n\n"
+                    filesystem_prompt += "\n".join(formatted_files)
+                    filesystem_prompt += "\n\n请以友好、有条理的方式向用户展示这些文件和文件夹，可以适当分类（如按文件与文件夹、或按文件类型）。如果列表为空，请告知用户桌面上没有文件。"
+                    
+                    # 调用大模型处理文件系统信息
+                    logger.info(f"发送文件系统提示词到大模型")
+                    response_text = query_guiji_model(filesystem_prompt)
+            except Exception as e:
+                logger.error(f"处理文件系统查询时出错: {str(e)}")
+                logger.error(traceback.format_exc())
+                response_text = f"抱歉，我尝试查看您桌面上的文件时遇到了技术问题: {str(e)}。这可能是因为文件系统服务未正确配置或未启动。"
+            
         # 检查是否是时间相关查询
-        time_keywords = ["时间", "几点", "日期", "today", "time", "date", "clock", "现在"]
-        is_time_query = any(keyword in user_message.lower() for keyword in time_keywords)
-        
-        # 检查消息中是否包含URL
-        urls = extract_urls(user_message)
-        
-        if is_time_query and not urls:
+        elif any(keyword in user_message.lower() for keyword in ["时间", "几点", "日期", "today", "time", "date", "clock", "现在"]):
             # 时间相关查询
             logger.info("检测到时间相关查询")
             time_info = fetch_time()
@@ -97,7 +156,8 @@ def chat():
                 # 调用大模型处理时间信息
                 logger.info(f"发送时间提示词到大模型: {time_prompt}")
                 response_text = query_guiji_model(time_prompt)
-        elif urls:
+        # 检查消息中是否包含URL
+        elif (urls := extract_urls(user_message)):
             # 有URL，需要处理
             logger.info(f"检测到URL: {urls}")
             
@@ -169,6 +229,55 @@ def clear_history():
 def get_time():
     time_info = fetch_time()
     return jsonify(time_info)
+
+@app.route("/api/files/list", methods=["POST"])
+def api_list_directory():
+    data = request.json
+    path = data.get("path", ".")
+    result = list_directory(path)
+    return jsonify(result)
+
+@app.route("/api/files/read", methods=["POST"])
+def api_read_file():
+    data = request.json
+    path = data.get("path")
+    if not path:
+        return jsonify({"error": "文件路径不能为空"}), 400
+    result = fs_read_file(path)
+    return jsonify(result)
+
+@app.route("/api/files/write", methods=["POST"])
+def api_write_file():
+    data = request.json
+    path = data.get("path")
+    content = data.get("content", "")
+    if not path:
+        return jsonify({"error": "文件路径不能为空"}), 400
+    result = fs_write_file(path, content)
+    return jsonify(result)
+
+@app.route("/api/files/search", methods=["POST"])
+def api_search_files():
+    data = request.json
+    path = data.get("path", ".")
+    pattern = data.get("pattern", "*")
+    exclude_patterns = data.get("excludePatterns")
+    result = search_files(path, pattern, exclude_patterns)
+    return jsonify(result)
+
+@app.route("/api/files/info", methods=["POST"])
+def api_get_file_info():
+    data = request.json
+    path = data.get("path")
+    if not path:
+        return jsonify({"error": "文件路径不能为空"}), 400
+    result = get_file_info(path)
+    return jsonify(result)
+
+@app.route("/filesystem")
+def filesystem():
+    """文件系统管理页面"""
+    return render_template("filesystem.html")
 
 def extract_urls(text):
     """从文本中提取所有URL"""
@@ -248,58 +357,35 @@ def fetch_webpage(url, max_length=10000, start_index=0, raw=False):
         return {"error": str(e)}
 
 def query_guiji_model(prompt):
-    """调用硅基流动API获取回答"""
+    """调用OpenRouter API获取回答"""
     try:
         logger.info(f"提示词长度: {len(prompt)}")
         
-        # 准备API请求
-        payload = {
-            "model": "deepseek-ai/DeepSeek-V3",
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
-            "stream": False,
-            "max_tokens": 1000,
-            "temperature": 0.7,
-            "top_p": 0.7,
-            "top_k": 50,
-            "frequency_penalty": 0.5,
-            "n": 1
-        }
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GUIJI_API_KEY}"
-        }
-        
-        # 调用硅基流动API
-        logger.info("发送请求到硅基流动API")
-        response = requests.post(
-            GUIJI_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=90
+        # 创建OpenAI客户端以连接OpenRouter
+        client = OpenAI(
+            base_url=OPENROUTER_API_URL,
+            api_key=OPENROUTER_API_KEY,
         )
         
-        logger.info(f"硅基流动API响应状态码: {response.status_code}")
+        # 调用OpenRouter API
+        logger.info("发送请求到OpenRouter API")
         
-        # 检查响应
-        if response.status_code != 200:
-            error_text = response.text
-            try:
-                error_response = response.json()
-                error_message = error_response.get("message", "未知错误")
-                return f"抱歉，API调用失败: {error_message}"
-            except:
-                return f"抱歉，API调用失败: {error_text[:100]}"
         
-        result = response.json()
+        completion = client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7,
+            top_p=0.7,
+        )
+        
+        logger.info("OpenRouter API响应成功")
         
         # 提取回答
-        if "choices" in result and len(result["choices"]) > 0:
-            return result["choices"][0]["message"]["content"]
-        else:
-            return "抱歉，无法获取有效回答。"
+        response_text = completion.choices[0].message.content
+        return response_text
     
     except Exception as e:
         logger.error(f"调用模型异常: {str(e)}")
@@ -318,12 +404,12 @@ def fetch_time():
         
         # 尝试不同的端点格式
         time_endpoints = [
-            # 标准端点
-            "http://127.0.0.1:8000/time/time",
+            # 直接访问get_current_time
+            "http://127.0.0.1:8000/time/get_current_time",
             # 根路径
             "http://127.0.0.1:8000/time/",
-            # 直接访问get_current_time
-            "http://127.0.0.1:8000/time/get_current_time"
+            # 标准端点
+            "http://127.0.0.1:8000/time/time"
         ]
         
         for endpoint in time_endpoints:
@@ -361,4 +447,5 @@ def fetch_time():
 
 if __name__ == "__main__":
     logger.info("启动Web应用...")
+    logger.info("请确保已启动MCPO服务，使用命令: mcpo --config mcp.json --port 8000")
     app.run(debug=True, port=5000)

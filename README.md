@@ -15,9 +15,10 @@ MCPO（MCP-to-OpenAPI）是一个简单高效的代理服务器，可以将任�
 
 ## 功能特点
 
-- **AI对话**：接入硅基流动API，提供智能对话服务
+- **AI对话**：接入OpenRouter API，提供DeepSeek等大模型对话服务
 - **网页内容分析**：自动识别用户消息中的URL，获取网页内容并进行分析
 - **时间信息查询**：支持用户查询当前时间，获取精确的时区和时间信息
+- **文件系统访问**：可直接查询桌面文件，自动列出文件和文件夹
 - **聊天历史记录**：保存会话历史，支持清空历史记录
 
 ## 系统架构
@@ -28,7 +29,8 @@ MCPO（MCP-to-OpenAPI）是一个简单高效的代理服务器，可以将任�
 2. **MCPO服务**：将MCP工具转换为标准OpenAPI服务
    - Fetch服务：负责获取网页内容
    - Time服务：提供精确的时间信息
-3. **AI大模型**：通过硅基流动API接入AI大模型
+   - Filesystem服务：访问桌面文件系统
+3. **AI大模型**：通过OpenRouter API接入DeepSeek等大模型
 
 ## MCPO的优势
 
@@ -60,22 +62,27 @@ pip install flask requests
 pip install mcpo
 ```
 
-3. 运行MCPO服务：
+3. 安装文件系统MCP服务：
 ```bash
-mcpo --config test.json --port 8000
+npm install -g @modelcontextprotocol/server-filesystem
 ```
 
-4. 运行Flask应用：
+4. 运行MCPO服务：
+```bash
+mcpo --config mcp.json --port 8000
+```
+
+5. 运行Flask应用：
 ```bash
 python app.py
 ```
 
-5. 访问应用：
+6. 访问应用：
 在浏览器中打开 http://127.0.0.1:5000
 
 ## 配置说明
 
-### test.json配置
+### mcp.json配置
 
 ```json
 {
@@ -87,24 +94,36 @@ python app.py
     "time": {
       "command": "uvx",
       "args": ["mcp-server-time", "--local-timezone=America/New_York"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "C:\\Users\\Jason\\Desktop"
+      ]
     }
   }
 }
 ```
 
-通过这个配置文件，MCPO会自动创建两个服务端点：
+通过这个配置文件，MCPO会自动创建三个服务端点：
 - http://localhost:8000/fetch - 用于获取网页内容
 - http://localhost:8000/time - 用于获取时间信息
+- http://localhost:8000/filesystem - 用于访问桌面文件系统
 
-每个服务都有自己专用的OpenAPI文档（可通过/fetch/docs和/time/docs访问）。
+每个服务都有自己专用的OpenAPI文档（可通过/fetch/docs、/time/docs和/filesystem/docs访问）。
 
 ### API配置
 
 在`app.py`中配置以下参数：
 
-- `GUIJI_API_KEY`：硅基流动API密钥
+- `OPENROUTER_API_KEY`：OpenRouter API密钥
+- `OPENROUTER_API_URL`：OpenRouter API URL
+- `OPENROUTER_MODEL`：使用的模型，如"deepseek/deepseek-chat-v3-0324:free"
 - `MCP_FETCH_URL`：MCPO Fetch服务地址
 - `MCP_TIME_URL`：MCPO Time服务地址
+- `MCP_FILESYSTEM_URL`：MCPO Filesystem服务地址
 
 ## 使用说明
 
@@ -121,9 +140,11 @@ python app.py
 ```
 ├── app.py                # Flask应用主文件
 ├── fetch_webpage.py      # 网页内容获取功能实现
-├── test.json             # MCPO服务配置文件
+├── filesystem_operations.py # 文件系统操作功能实现
+├── mcp.json              # MCPO服务配置文件
 ├── templates/            # HTML模板目录
 │   ├── chat.html         # 聊天页面模板
+│   ├── filesystem.html   # 文件系统管理页面
 │   └── index.html        # 首页模板
 └── static/               # 静态资源目录
     ├── css/              # CSS样式文件
