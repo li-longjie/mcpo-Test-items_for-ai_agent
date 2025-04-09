@@ -15,7 +15,7 @@ app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.getenv("SECRET_KEY", "your-secret-key-here")
 
 # OpenRouter API配置
-OPENROUTER_API_KEY = "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"  # 替换为您的OpenRouter API密钥
+OPENROUTER_API_KEY = ""  # 替换为您的OpenRouter API密钥
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL = "google/gemma-3-12b-it:free"
 
