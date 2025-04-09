@@ -13,7 +13,7 @@
         "args": [
           "-y",
           "@modelcontextprotocol/server-filesystem",
-          "C:\\Users\\Jason\\PycharmProjects\\mcpo"
+          "C:\\Users\\Jason\\Desktop"
         ]
       }
     }

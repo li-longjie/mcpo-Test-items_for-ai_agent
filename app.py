@@ -17,7 +17,7 @@ app.secret_key = os.getenv("SECRET_KEY", "your-secret-key-here")
 # OpenRouter API配置
 OPENROUTER_API_KEY = ""  # 替换为您的OpenRouter API密钥
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_MODEL = "google/gemma-3-12b-it:free"
+OPENROUTER_MODEL = "deepseek/deepseek-chat-v3-0324:free"
 
 # MCP Fetch服务配置
 MCP_FETCH_URL = "http://127.0.0.1:8000/fetch/fetch"
@@ -26,7 +26,7 @@ MCP_FETCH_URL = "http://127.0.0.1:8000/fetch/fetch"
 MCP_TIME_URL = "http://127.0.0.1:8000/time/time"
 
 # MCP 文件系统服务配置
-MCP_FILESYSTEM_URL = "http://127.0.0.1:8000/filesystem/filesystem"
+MCP_FILESYSTEM_URL = "http://127.0.0.1:8000/filesystem"
 
 # 以下配置已不再需要，保留为注释以备参考
 # 或方案2：使用根路径
@@ -78,20 +78,9 @@ def chat():
             logger.info("检测到桌面文件查询请求")
             try:
                 logger.info("尝试列出桌面目录内容")
-                # 先检查文件系统服务是否可用
-                try:
-                    logger.info(f"检查文件系统服务: {MCP_FILESYSTEM_URL}")
-                    health_check = requests.get(
-                        f"{MCP_FILESYSTEM_URL}",
-                        timeout=5
-                    )
-                    logger.info(f"文件系统服务检查状态码: {health_check.status_code}")
-                except Exception as e:
-                    logger.error(f"文件系统服务检查失败: {str(e)}")
-
-                # 尝试列出目录
-                # 不管传入什么路径，我们都只列出桌面根目录
-                file_list = list_directory(".")
+                # 直接使用桌面路径，跳过查询允许目录
+                desktop_path = "C:\\Users\\Jason\\Desktop"
+                file_list = list_directory(desktop_path)
                 
                 logger.info(f"list_directory返回结果类型: {type(file_list)}")
                 if isinstance(file_list, dict) and "error" in file_list:
@@ -233,7 +222,7 @@ def get_time():
 @app.route("/api/files/list", methods=["POST"])
 def api_list_directory():
     data = request.json
-    path = data.get("path", ".")
+    path = data.get("path", "C:\\Users\\Jason\\Desktop")  # 默认为桌面路径
     result = list_directory(path)
     return jsonify(result)
 
@@ -443,6 +432,43 @@ def fetch_time():
     except Exception as e:
         logger.error(f"获取时间信息异常: {str(e)}")
         logger.error(traceback.format_exc())
+        return {"error": str(e)}
+
+def list_directory(path):
+    """列出指定目录的内容"""
+    try:
+        logger.info(f"列出目录: {path}")
+        
+        # 准备请求体
+        request_body = {
+            "path": path
+        }
+        
+        # 尝试两种可能的端点
+        endpoints = [
+            f"{MCP_FILESYSTEM_URL}/list_directory",  # 配置文件模式
+            "http://127.0.0.1:8000/list_directory"   # 单服务模式
+        ]
+        
+        for endpoint in endpoints:
+            try:
+                logger.info(f"尝试端点: {endpoint}")
+                response = requests.post(
+                    endpoint,
+                    json=request_body,
+                    timeout=10
+                )
+                
+                logger.info(f"响应状态码: {response.status_code}")
+                
+                if response.status_code == 200:
+                    return response.json()
+            except Exception as e:
+                logger.warning(f"尝试端点 {endpoint} 失败: {str(e)}")
+        
+        return {"error": "无法连接到文件系统服务，所有端点都失败"}
+    except Exception as e:
+        logger.error(f"列目录异常: {str(e)}")
         return {"error": str(e)}
 
 if __name__ == "__main__":
